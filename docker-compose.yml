@@ -1,19 +1,22 @@
 version: '3'
 services:
   db:
+    container_name: masto-db
     restart: always
-    image: postgres:14-alpine
+    image: postgres:15-alpine
     shm_size: 256mb
     networks:
       - internal_network
     healthcheck:
       test: ['CMD', 'pg_isready', '-U', 'postgres']
     volumes:
-      - ./postgres14:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     environment:
       - 'POSTGRES_HOST_AUTH_METHOD=trust'
+      - 'POSTGRES_DB=masto'
 
   redis:
+    container_name: masto-redis
     restart: always
     image: redis:7-alpine
     networks:
@@ -21,11 +24,12 @@ services:
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
     volumes:
-      - ./redis:/data
+      - ./data/redis:/data
 
   # es:
+  #   container_name: masto-es
   #   restart: always
-  #   image: docker.elastic.co/elasticsearch/elasticsearch:7.17.4
+  #   image: docker.elastic.co/elasticsearch/elasticsearch-oss:7.10.2
   #   environment:
   #     - "ES_JAVA_OPTS=-Xms512m -Xmx512m -Des.enforce.bootstrap.checks=true"
   #     - "xpack.license.self_generated.type=basic"
@@ -43,7 +47,7 @@ services:
   #   healthcheck:
   #      test: ["CMD-SHELL", "curl --silent --fail localhost:9200/_cluster/health || exit 1"]
   #   volumes:
-  #      - ./elasticsearch:/usr/share/elasticsearch/data
+  #      - ./data/es:/usr/share/elasticsearch/data
   #   ulimits:
   #     memlock:
   #       soft: -1
@@ -55,10 +59,11 @@ services:
   #     - '127.0.0.1:9200:9200'
 
   web:
+    container_name: masto-web
     build: .
     image: tootsuite/mastodon
     restart: always
-    env_file: .env.production
+    env_file: production.env
     command: bash -c "rm -f /mastodon/tmp/pids/server.pid; bundle exec rails s -p 3000"
     networks:
       - external_network
@@ -67,19 +72,21 @@ services:
       # prettier-ignore
       test: ['CMD-SHELL', 'wget -q --spider --proxy=off localhost:3000/health || exit 1']
     ports:
-      - '127.0.0.1:3000:3000'
+      - '127.0.0.1:14710:3000'
     depends_on:
       - db
       - redis
       # - es
     volumes:
-      - ./public/system:/mastodon/public/system
+      - ./data/assets:/mastodon/public/assets
+      - ./data/system:/mastodon/public/system
 
   streaming:
+    container_name: masto-cast
     build: .
     image: tootsuite/mastodon
     restart: always
-    env_file: .env.production
+    env_file: production.env
     command: node ./streaming
     networks:
       - external_network
@@ -88,16 +95,17 @@ services:
       # prettier-ignore
       test: ['CMD-SHELL', 'wget -q --spider --proxy=off localhost:4000/api/v1/streaming/health || exit 1']
     ports:
-      - '127.0.0.1:4000:4000'
+      - '127.0.0.1:14711:4000'
     depends_on:
       - db
       - redis
 
   sidekiq:
+    container_name: masto-sidekiq
     build: .
     image: tootsuite/mastodon
     restart: always
-    env_file: .env.production
+    env_file: production.env
     command: bundle exec sidekiq
     depends_on:
       - db
@@ -106,7 +114,8 @@ services:
       - external_network
       - internal_network
     volumes:
-      - ./public/system:/mastodon/public/system
+      - ./data/assets:/mastodon/public/assets
+      - ./data/system:/mastodon/public/system
     healthcheck:
       test: ['CMD-SHELL', "ps aux | grep '[s]idekiq\ 6' || false"]
 
